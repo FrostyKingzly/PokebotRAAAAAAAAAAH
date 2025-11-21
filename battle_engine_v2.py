@@ -385,12 +385,26 @@ class BattleEngine:
             raise ValueError("Opponent must have at least one Pokémon to battle.")
 
         active_slot_count = 2 if battle_format == BattleFormat.DOUBLES else 1
-        trainer_active_positions = list(range(min(len(trainer_party), active_slot_count)))
-        opponent_active_positions = list(range(min(len(opponent_party), active_slot_count)))
+
+        # Select first non-fainted Pokemon for trainer
+        trainer_active_positions = []
+        for i, mon in enumerate(trainer_party):
+            if getattr(mon, 'current_hp', 0) > 0:
+                trainer_active_positions.append(i)
+                if len(trainer_active_positions) >= active_slot_count:
+                    break
         if not trainer_active_positions:
-            trainer_active_positions = [0]
+            trainer_active_positions = [0]  # Fallback if all fainted
+
+        # Select first non-fainted Pokemon for opponent
+        opponent_active_positions = []
+        for i, mon in enumerate(opponent_party):
+            if getattr(mon, 'current_hp', 0) > 0:
+                opponent_active_positions.append(i)
+                if len(opponent_active_positions) >= active_slot_count:
+                    break
         if not opponent_active_positions:
-            opponent_active_positions = [0]
+            opponent_active_positions = [0]  # Fallback if all fainted
 
         # Create trainer battler
         trainer = Battler(
