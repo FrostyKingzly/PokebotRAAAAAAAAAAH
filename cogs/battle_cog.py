@@ -1097,10 +1097,14 @@ class TargetSelectView(discord.ui.View):
         # Determine which targets to show based on move target type
         if target_type in ['all_adjacent', 'all_opponents', 'all']:
             # No target selection needed, just submit
-            self.add_item(discord.ui.Button(label="✓ Confirm (hits all targets)", style=discord.ButtonStyle.success, custom_id="auto_target"))
-        elif target_type in ['self', 'entire_field', 'user_field', 'enemy_field']:
-            # No target selection needed
-            self.add_item(discord.ui.Button(label="✓ Confirm", style=discord.ButtonStyle.success, custom_id="auto_target"))
+            auto_btn = discord.ui.Button(label="✓ Confirm (hits all targets)", style=discord.ButtonStyle.success, custom_id="auto_target")
+            auto_btn.callback = self._create_target_callback(0)
+            self.add_item(auto_btn)
+        elif target_type in ['self', 'entire_field', 'user_field', 'enemy_field', 'ally', 'all_allies']:
+            # No target selection needed for field effects or self-targeting moves
+            auto_btn = discord.ui.Button(label="✓ Confirm", style=discord.ButtonStyle.success, custom_id="auto_target")
+            auto_btn.callback = self._create_target_callback(0)
+            self.add_item(auto_btn)
         else:
             # Single target - show opponent Pokemon
             opponent = battle.opponent if battler_id == battle.trainer.battler_id else battle.trainer
@@ -1152,7 +1156,8 @@ class TargetSelectView(discord.ui.View):
             action_type='move',
             battler_id=self.battler_id,
             move_id=self.move_id,
-            target_position=target_pos
+            target_position=target_pos,
+            pokemon_position=self.pokemon_position
         )
 
         # If this is part of a doubles collector, add to collector
