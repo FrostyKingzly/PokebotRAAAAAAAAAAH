@@ -5829,7 +5829,7 @@
     "accuracy": null,
     "pp": 20,
     "priority": 5,
-    "target": "single",
+    "target": "ally",
     "crit_rate": 1,
     "description": "A move that boosts the power of the ally\u00c3\u0192\u00c2\u00a2\u00c3\u00a2\u00e2\u20ac\u0161\u00c2\u00ac\u00c3\u00a2\u00e2\u20ac\u017e\u00c2\u00a2s attack in a Double Battle.",
     "generation": 3,
