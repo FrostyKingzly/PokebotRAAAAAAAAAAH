@@ -193,6 +193,62 @@
             ]
           }
         ]
+      },
+      {
+        "name": "Trick Room Master Trent",
+        "class": "Ace Trainer",
+        "prize_money": 5000,
+        "battle_format": "doubles",
+        "party": [
+          {
+            "species_dex_number": 356,
+            "level": 50,
+            "nature": "relaxed",
+            "ability": "pressure",
+            "moves": [
+              "trick_room",
+              "helping_hand",
+              "pain_split",
+              "night_shade"
+            ]
+          },
+          {
+            "species_dex_number": 464,
+            "level": 50,
+            "nature": "brave",
+            "ability": "solid_rock",
+            "moves": [
+              "earthquake",
+              "rock_slide",
+              "stone_edge",
+              "megahorn"
+            ]
+          },
+          {
+            "species_dex_number": 534,
+            "level": 50,
+            "nature": "brave",
+            "ability": "guts",
+            "moves": [
+              "drain_punch",
+              "mach_punch",
+              "ice_punch",
+              "knock_off"
+            ]
+          },
+          {
+            "species_dex_number": 324,
+            "level": 50,
+            "nature": "quiet",
+            "ability": "drought",
+            "moves": [
+              "eruption",
+              "heat_wave",
+              "earth_power",
+              "protect"
+            ]
+          }
+        ]
       }
     ],
     "ranked_npc_trainers": [

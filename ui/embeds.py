@@ -1049,13 +1049,14 @@ class EmbedBuilder:
             npc_class = npc.get('class', 'Trainer')
             party_size = len(npc.get('party', []))
             prize_money = npc.get('prize_money', 0)
-            
-            # Show class and party size only (hide specifics)
-            party_size = len(npc.get('party', []))
-            
+            battle_format = npc.get('battle_format', 'singles')
+
+            # Display battle format
+            format_display = battle_format.capitalize() if battle_format else 'Singles'
+
             trainer_info = f"**{npc_class}**\n"
-            trainer_info += f"Team Size: {party_size} Pokemon"
-            
+            trainer_info += f"Battle Type: {format_display}"
+
             embed.add_field(
                 name=f"{i}. {npc_name}",
                 value=trainer_info,

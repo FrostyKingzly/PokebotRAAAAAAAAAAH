@@ -2619,7 +2619,18 @@ class NpcTrainerSelectView(View):
             species_data = self.bot.species_db.get_species(poke_data['species_dex_number'])
             pokemon = reconstruct_pokemon_from_data(poke_data, species_data)
             trainer_pokemon.append(pokemon)
-        
+
+        # Check if player has enough Pokemon for doubles
+        battle_format_str = npc_data.get('battle_format', 'singles').lower()
+        if battle_format_str == 'doubles':
+            healthy_count = sum(1 for p in trainer_pokemon if getattr(p, 'current_hp', 0) > 0)
+            if healthy_count < 2:
+                await interaction.response.send_message(
+                    f"❌ You need at least 2 healthy Pokemon for doubles battles! (You have {healthy_count})",
+                    ephemeral=True
+                )
+                return
+
         # Build NPC's party
         npc_pokemon = []
         for npc_poke in npc_data.get('party', []):
@@ -2639,6 +2650,15 @@ class NpcTrainerSelectView(View):
         
         ranked_context = self._build_ranked_context(npc_data, extra_context)
 
+        # Determine battle format from NPC data
+        battle_format_str = npc_data.get('battle_format', 'singles').lower()
+        if battle_format_str == 'doubles':
+            from battle_engine_v2 import BattleFormat
+            battle_format = BattleFormat.DOUBLES
+        else:
+            from battle_engine_v2 import BattleFormat
+            battle_format = BattleFormat.SINGLES
+
         battle_id = battle_cog.battle_engine.start_trainer_battle(
             trainer_id=interaction.user.id,
             trainer_name=interaction.user.display_name,
@@ -2647,6 +2667,7 @@ class NpcTrainerSelectView(View):
             npc_name=npc_data.get('name', 'Trainer'),
             npc_class=npc_data.get('class', 'Trainer'),
             prize_money=npc_data.get('prize_money', 0),
+            battle_format=battle_format,
             is_ranked=self.ranked,
             ranked_context=ranked_context
         )
