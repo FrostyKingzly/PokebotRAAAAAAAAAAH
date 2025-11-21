@@ -788,8 +788,138 @@ class BattleEngine:
         
         return {"messages": []}
     
+    def _determine_move_targets(self, battle: BattleState, action: BattleAction, move_data: Dict) -> List[Tuple[Any, Any]]:
+        """
+        Determine all targets for a move based on its target type.
+
+        Returns:
+            List of (defender_battler, defender_pokemon) tuples
+        """
+        if action.battler_id == battle.trainer.battler_id:
+            attacker_battler = battle.trainer
+            defender_battler = battle.opponent
+            ally_battler = battle.trainer
+        else:
+            attacker_battler = battle.opponent
+            defender_battler = battle.trainer
+            ally_battler = battle.opponent
+
+        target_type = move_data.get('target', 'single')
+        targets = []
+
+        if target_type == 'single':
+            # Single opponent target
+            target_pos = action.target_position if action.target_position is not None else 0
+            defender_active = defender_battler.get_active_pokemon()
+            if target_pos < len(defender_active):
+                targets.append((defender_battler, defender_active[target_pos]))
+
+        elif target_type in ['all_opponents', 'all_adjacent']:
+            # Hit all opponent Pokemon
+            for mon in defender_battler.get_active_pokemon():
+                targets.append((defender_battler, mon))
+
+        elif target_type == 'all':
+            # Hit all Pokemon on the field (opponents and allies)
+            for mon in defender_battler.get_active_pokemon():
+                targets.append((defender_battler, mon))
+            for mon in ally_battler.get_active_pokemon():
+                targets.append((ally_battler, mon))
+
+        elif target_type == 'all_allies':
+            # Hit all ally Pokemon (including self)
+            for mon in ally_battler.get_active_pokemon():
+                targets.append((ally_battler, mon))
+
+        elif target_type in ['self', 'user_field']:
+            # Target is the attacker itself (handled separately, return empty)
+            pass
+
+        elif target_type in ['entire_field', 'enemy_field']:
+            # Field effects (handled separately, return empty)
+            pass
+
+        else:
+            # Default to single target
+            target_pos = action.target_position if action.target_position is not None else 0
+            defender_active = defender_battler.get_active_pokemon()
+            if target_pos < len(defender_active):
+                targets.append((defender_battler, defender_active[target_pos]))
+
+        return targets
+
+    async def _execute_spread_move(self, battle: BattleState, action: BattleAction,
+                                    attacker, targets: List[Tuple[Any, Any]], move_data: Dict) -> Dict:
+        """Handle moves that hit multiple targets (spread moves)."""
+        messages = []
+
+        # Deduct PP once
+        for move in attacker.moves:
+            if move['move_id'] == action.move_id:
+                move['pp'] = max(0, move['pp'] - 1)
+                break
+
+        messages.append(f"{attacker.species_name} used {move_data['name']}!")
+
+        # In doubles, spread moves have 0.75x power
+        spread_modifier = 0.75 if battle.battle_format == BattleFormat.DOUBLES and len(targets) > 1 else 1.0
+
+        # Hit each target
+        for defender_battler, defender in targets:
+            # Check if defender is protected
+            if ENHANCED_SYSTEMS_AVAILABLE and hasattr(defender, 'status_manager'):
+                if 'protect' in getattr(defender.status_manager, 'volatile_statuses', {}):
+                    if move_data.get('category') in ['physical', 'special']:
+                        messages.append(f"{defender.species_name} protected itself!")
+                        continue
+
+            # Calculate damage
+            if ENHANCED_SYSTEMS_AVAILABLE:
+                damage, is_crit, effectiveness, effect_msgs = self.calculator.calculate_damage_with_effects(
+                    attacker, defender, action.move_id,
+                    weather=battle.weather,
+                    terrain=battle.terrain,
+                    battle_state=battle
+                )
+                damage = int(damage * spread_modifier)
+            else:
+                damage = int(10 * spread_modifier)
+                is_crit = False
+                effectiveness = 1.0
+                effect_msgs = []
+
+            # Apply damage
+            if damage > 0:
+                defender.current_hp = max(0, defender.current_hp - damage)
+
+            # Build damage message
+            damage_text = f"{defender.species_name} took {damage} damage!"
+            if is_crit:
+                damage_text += " Critical hit!"
+            if effectiveness > 1:
+                damage_text += " Super effective!"
+            elif effectiveness < 1 and effectiveness > 0:
+                damage_text += " Not very effective..."
+            elif effectiveness == 0:
+                damage_text = f"It doesn't affect {defender.species_name}..."
+
+            messages.append(damage_text)
+            messages.extend(effect_msgs)
+
+            # Check for faint
+            if defender.current_hp <= 0:
+                if battle.battle_type == BattleType.WILD and defender_battler == battle.opponent:
+                    defender.current_hp = 1
+                    battle.wild_dazed = True
+                    battle.phase = 'DAZED'
+                    messages.append(f"The wild {defender.species_name} is dazed!")
+                else:
+                    messages.append(f"{defender.species_name} fainted!")
+
+        return {"messages": messages}
+
     async def _execute_move(self, battle: BattleState, action: BattleAction) -> Dict:
-        """Execute a move action"""
+        """Execute a move action - now supports spread moves hitting multiple targets"""
         # Get attacker and defender
         if action.battler_id == battle.trainer.battler_id:
             attacker_battler = battle.trainer
@@ -798,7 +928,10 @@ class BattleEngine:
             attacker_battler = battle.opponent
             defender_battler = battle.trainer
 
+        # Get attacker Pokemon (the one using the move) - default to first position
         attacker = attacker_battler.get_active_pokemon()[0]
+
+        # For singles or simple case, get single defender
         defender = defender_battler.get_active_pokemon()[action.target_position or 0]
 
         # Check if attacker can move (status conditions, flinch, etc.)
@@ -811,6 +944,14 @@ class BattleEngine:
         move_data = self.moves_db.get_move(action.move_id)
         if not move_data:
             return {"messages": [f"{attacker.species_name} tried to use an unknown move!"]}
+
+        # Determine all targets based on move target type
+        target_type = move_data.get('target', 'single')
+        targets = self._determine_move_targets(battle, action, move_data)
+
+        # If move hits multiple targets (spread move), handle differently
+        if len(targets) > 1:
+            return await self._execute_spread_move(battle, action, attacker, targets, move_data)
 
         # Handle Protect/Detect successive use failure
         if action.move_id in ['protect', 'detect']:

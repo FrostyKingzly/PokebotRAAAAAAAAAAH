@@ -322,34 +322,44 @@ class BattleCog(commands.Cog):
         return item_id.replace('_', ' ').title()
 
     def _create_battle_embed(self, battle) -> discord.Embed:
-        # Minimal, safe fallback embed; keep your richer implementation if present in your project
-        trainer_pokemon = battle.trainer.get_active_pokemon()[0]
-        opponent_pokemon = battle.opponent.get_active_pokemon()[0]
+        trainer_active = battle.trainer.get_active_pokemon()
+        opponent_active = battle.opponent.get_active_pokemon()
+
+        is_doubles = battle.battle_format == BattleFormat.DOUBLES
 
         e = discord.Embed(
-            title=f"{SWORD} Battle",
+            title=f"{SWORD} {'Doubles ' if is_doubles else ''}Battle",
             description=f"**Turn {battle.turn_number}**",
             color=discord.Color.dark_grey()
         )
-        trainer_value = f"HP: {self._hp_bar(trainer_pokemon)} ({max(0, trainer_pokemon.current_hp)}/{trainer_pokemon.max_hp})"
-        held = self._held_item_text(trainer_pokemon)
-        if held:
-            trainer_value += f"\n🎁 Item: {held}"
-        e.add_field(
-            name=f"{trainer_pokemon.species_name}",
-            value=trainer_value,
-            inline=False
-        )
-        # Changed: Show opponent HP instead of ???
-        opponent_value = f"HP: {self._hp_bar(opponent_pokemon)} ({max(0, opponent_pokemon.current_hp)}/{opponent_pokemon.max_hp})"
-        foe_item = self._held_item_text(opponent_pokemon)
-        if foe_item:
-            opponent_value += f"\n🎁 Item: {foe_item}"
-        e.add_field(
-            name=f"{opponent_pokemon.species_name}",
-            value=opponent_value,
-            inline=False
-        )
+
+        # Show all active opponent Pokemon
+        for idx, opp_mon in enumerate(opponent_active):
+            opp_value = f"HP: {self._hp_bar(opp_mon)} ({max(0, opp_mon.current_hp)}/{opp_mon.max_hp})"
+            foe_item = self._held_item_text(opp_mon)
+            if foe_item:
+                opp_value += f"\n🎁 Item: {foe_item}"
+
+            position_label = f" (Slot {idx+1})" if is_doubles else ""
+            e.add_field(
+                name=f"{FOE} {opp_mon.species_name}{position_label}",
+                value=opp_value,
+                inline=is_doubles
+            )
+
+        # Show all active trainer Pokemon
+        for idx, trainer_mon in enumerate(trainer_active):
+            trainer_value = f"HP: {self._hp_bar(trainer_mon)} ({max(0, trainer_mon.current_hp)}/{trainer_mon.max_hp})"
+            held = self._held_item_text(trainer_mon)
+            if held:
+                trainer_value += f"\n🎁 Item: {held}"
+
+            position_label = f" (Slot {idx+1})" if is_doubles else ""
+            e.add_field(
+                name=f"{YOU} {trainer_mon.species_name}{position_label}",
+                value=trainer_value,
+                inline=is_doubles
+            )
         if getattr(battle, "recent_events", None):
             e.add_field(name=f"{EVENTS} Recent Events", value="\n".join(battle.recent_events[-5:]), inline=False)
         if getattr(battle, "weather", None) or getattr(battle, "terrain", None):
@@ -632,11 +642,24 @@ class BattleActionView(discord.ui.View):
             await interaction.response.send_message("You are not a participant in this battle.", ephemeral=True)
             return
 
-        await interaction.response.send_message(
-            "Choose a move:",
-            view=MoveSelectView(battle, battler_id, self.engine),
-            ephemeral=True,
-        )
+        # Check if this is a doubles battle
+        if battle.battle_format == BattleFormat.DOUBLES:
+            # Use doubles action collector
+            collector = DoublesActionCollector(battle, battler_id, self.engine)
+            battler = battle.trainer if battler_id == battle.trainer.battler_id else battle.opponent
+            first_mon = battler.get_active_pokemon()[0]
+            await interaction.response.send_message(
+                f"Select move for **{first_mon.species_name}** (Slot 1):",
+                view=DoublesMoveSelectView(battle, battler_id, self.engine, 0, collector),
+                ephemeral=True,
+            )
+        else:
+            # Singles battle
+            await interaction.response.send_message(
+                "Choose a move:",
+                view=MoveSelectView(battle, battler_id, self.engine),
+                ephemeral=True,
+            )
 
 
     @discord.ui.button(label="🔄 Switch", style=discord.ButtonStyle.primary, row=0)
@@ -1022,6 +1045,257 @@ class DazedCatchView(discord.ui.View):
             ),
             view=None,
         )
+
+# ============================================
+# DOUBLES BATTLE UI COMPONENTS
+# ============================================
+
+class DoublesActionCollector:
+    """Collects actions for both Pokemon in a doubles battle."""
+    def __init__(self, battle, battler_id: int, engine: BattleEngine):
+        self.battle = battle
+        self.battler_id = battler_id
+        self.engine = engine
+        self.actions = {}  # {position: BattleAction}
+        self.current_position = 0
+        self.battle_id = battle.battle_id
+
+    def has_all_actions(self) -> bool:
+        """Check if we have actions for all active Pokemon."""
+        battler = self.battle.trainer if self.battler_id == self.battle.trainer.battler_id else self.battle.opponent
+        num_active = len(battler.get_active_pokemon())
+        return len(self.actions) >= num_active
+
+    def add_action(self, position: int, action: BattleAction):
+        """Add an action for a specific position."""
+        self.actions[position] = action
+
+    def get_next_position(self) -> int | None:
+        """Get the next position that needs an action."""
+        battler = self.battle.trainer if self.battler_id == self.battle.trainer.battler_id else self.battle.opponent
+        for pos in range(len(battler.get_active_pokemon())):
+            if pos not in self.actions:
+                return pos
+        return None
+
+
+class TargetSelectView(discord.ui.View):
+    """View for selecting which target to attack in doubles battles."""
+    def __init__(self, battle, battler_id: int, move_id: str, pokemon_position: int,
+                 engine: BattleEngine, collector: DoublesActionCollector | None = None):
+        super().__init__(timeout=60)
+        self.battle = battle
+        self.battle_id = battle.battle_id
+        self.battler_id = battler_id
+        self.move_id = move_id
+        self.pokemon_position = pokemon_position
+        self.engine = engine
+        self.collector = collector
+
+        # Get move data to determine valid targets
+        move_data = engine.moves_db.get_move(move_id) if hasattr(engine, 'moves_db') else {}
+        target_type = move_data.get('target', 'single')
+
+        # Determine which targets to show based on move target type
+        if target_type in ['all_adjacent', 'all_opponents', 'all']:
+            # No target selection needed, just submit
+            self.add_item(discord.ui.Button(label="✓ Confirm (hits all targets)", style=discord.ButtonStyle.success, custom_id="auto_target"))
+        elif target_type in ['self', 'entire_field', 'user_field', 'enemy_field']:
+            # No target selection needed
+            self.add_item(discord.ui.Button(label="✓ Confirm", style=discord.ButtonStyle.success, custom_id="auto_target"))
+        else:
+            # Single target - show opponent Pokemon
+            opponent = battle.opponent if battler_id == battle.trainer.battler_id else battle.trainer
+            for idx, mon in enumerate(opponent.get_active_pokemon()):
+                button = discord.ui.Button(
+                    label=f"Target: {mon.species_name} (Slot {idx+1})",
+                    style=discord.ButtonStyle.primary,
+                    custom_id=f"target_{idx}"
+                )
+                button.callback = self._create_target_callback(idx)
+                self.add_item(button)
+
+        # Add back button for doubles
+        if collector:
+            back_btn = discord.ui.Button(label="← Back", style=discord.ButtonStyle.secondary, custom_id="back")
+            back_btn.callback = self._back_callback
+            self.add_item(back_btn)
+
+    def _create_target_callback(self, target_pos: int):
+        async def callback(interaction: discord.Interaction):
+            await self._handle_target_selection(interaction, target_pos)
+        return callback
+
+    async def _back_callback(self, interaction: discord.Interaction):
+        """Go back to move selection."""
+        if self.pokemon_position > 0 and self.collector:
+            # Remove the previous action
+            self.collector.actions.pop(self.pokemon_position, None)
+            await interaction.response.edit_message(
+                content=f"Select move for Pokemon {self.pokemon_position} (Slot {self.pokemon_position+1}):",
+                view=DoublesMoveSelectView(
+                    self.battle, self.battler_id, self.engine,
+                    self.pokemon_position, self.collector
+                ),
+                embed=None
+            )
+        else:
+            await interaction.response.edit_message(
+                content="Cannot go back further.",
+                view=None,
+                embed=None
+            )
+
+    async def _handle_target_selection(self, interaction: discord.Interaction, target_pos: int):
+        await interaction.response.defer()
+
+        # Create the action
+        action = BattleAction(
+            action_type='move',
+            battler_id=self.battler_id,
+            move_id=self.move_id,
+            target_position=target_pos
+        )
+
+        # If this is part of a doubles collector, add to collector
+        if self.collector:
+            self.collector.add_action(self.pokemon_position, action)
+
+            # Check if we need to select for more Pokemon
+            next_pos = self.collector.get_next_position()
+            if next_pos is not None:
+                battler = self.battle.trainer if self.battler_id == self.battle.trainer.battler_id else self.battle.opponent
+                next_mon = battler.get_active_pokemon()[next_pos]
+                await interaction.followup.send(
+                    f"Select move for **{next_mon.species_name}** (Slot {next_pos+1}):",
+                    view=DoublesMoveSelectView(
+                        self.battle, self.battler_id, self.engine,
+                        next_pos, self.collector
+                    ),
+                    ephemeral=True
+                )
+                return
+
+            # All actions collected, submit them all
+            for pos, act in self.collector.actions.items():
+                self.engine.register_action(self.battle_id, self.battler_id, act)
+
+            # Check if ready to resolve
+            res = {'ready_to_resolve': True}  # In doubles, need to check if opponent is ready too
+            battle = self.engine.get_battle(self.battle_id)
+            if not battle:
+                await interaction.followup.send("Battle not found.", ephemeral=True)
+                return
+
+            # Check if all required actions are registered
+            if len(battle.pending_actions) < len(battle.trainer.get_active_pokemon()) + len(battle.opponent.get_active_pokemon()):
+                await interaction.followup.send(
+                    "Actions submitted! Waiting for opponent...",
+                    ephemeral=True
+                )
+                return
+
+            # Process turn
+            cog = interaction.client.get_cog("BattleCog")
+            if res.get("ready_to_resolve") and cog:
+                turn = await self.engine.process_turn(self.battle_id)
+                await cog._send_turn_resolution(interaction, turn)
+                await cog._handle_post_turn(interaction, self.battle_id)
+        else:
+            # Singles battle path
+            res = self.engine.register_action(self.battle_id, self.battler_id, action)
+            cog = interaction.client.get_cog("BattleCog")
+
+            if not res.get("ready_to_resolve"):
+                await interaction.followup.send(
+                    "Move selected! Waiting for the other trainer...",
+                    ephemeral=True
+                )
+                return
+
+            if res.get("ready_to_resolve") and cog:
+                turn = await self.engine.process_turn(self.battle_id)
+                await cog._send_turn_resolution(interaction, turn)
+                await cog._handle_post_turn(interaction, self.battle_id)
+
+
+class DoublesMoveSelectView(discord.ui.View):
+    """Move selection view for one Pokemon in a doubles battle."""
+    def __init__(self, battle, battler_id: int, engine: BattleEngine,
+                 pokemon_position: int, collector: DoublesActionCollector):
+        super().__init__(timeout=60)
+        self.battle = battle
+        self.battle_id = battle.battle_id
+        self.battler_id = battler_id
+        self.engine = engine
+        self.pokemon_position = pokemon_position
+        self.collector = collector
+
+        # Get the Pokemon at this position
+        battler = battle.trainer if battler_id == battle.trainer.battler_id else battle.opponent
+        active_pokemon = battler.get_active_pokemon()[pokemon_position]
+
+        # Add move buttons
+        for mv in getattr(active_pokemon, "moves", [])[:4]:
+            move_id = mv.get("move_id") or mv.get("id")
+            if not move_id:
+                continue
+
+            move_info = engine.moves_db.get_move(move_id) if hasattr(engine, "moves_db") else None
+            move_name = (move_info.get("name") if move_info else None) or mv.get("name") or move_id
+            cur_pp = mv.get("pp")
+            max_pp = mv.get("max_pp")
+            label = f"{move_name} ({cur_pp}/{max_pp})" if (cur_pp is not None and max_pp is not None) else move_name
+
+            button = discord.ui.Button(
+                label=label,
+                style=discord.ButtonStyle.secondary,
+                disabled=(cur_pp is not None and cur_pp <= 0)
+            )
+            button.callback = self._create_move_callback(move_id)
+            self.add_item(button)
+
+        # Add back button if this isn't the first Pokemon
+        if pokemon_position > 0:
+            back_btn = discord.ui.Button(label="← Back to previous Pokemon", style=discord.ButtonStyle.secondary)
+            back_btn.callback = self._back_callback
+            self.add_item(back_btn)
+
+    def _create_move_callback(self, move_id: str):
+        async def callback(interaction: discord.Interaction):
+            await interaction.response.edit_message(
+                content=f"Select target for this move:",
+                view=TargetSelectView(
+                    self.battle, self.battler_id, move_id,
+                    self.pokemon_position, self.engine, self.collector
+                ),
+                embed=None
+            )
+        return callback
+
+    async def _back_callback(self, interaction: discord.Interaction):
+        """Go back to previous Pokemon's move selection."""
+        prev_pos = self.pokemon_position - 1
+        if prev_pos >= 0:
+            # Remove previous Pokemon's action
+            self.collector.actions.pop(prev_pos, None)
+            battler = self.battle.trainer if self.battler_id == self.battle.trainer.battler_id else self.battle.opponent
+            prev_mon = battler.get_active_pokemon()[prev_pos]
+            await interaction.response.edit_message(
+                content=f"Select move for **{prev_mon.species_name}** (Slot {prev_pos+1}):",
+                view=DoublesMoveSelectView(
+                    self.battle, self.battler_id, self.engine,
+                    prev_pos, self.collector
+                ),
+                embed=None
+            )
+        else:
+            await interaction.response.send_message("Cannot go back further.", ephemeral=True)
+
+
+# ============================================
+# END DOUBLES BATTLE UI COMPONENTS
+# ============================================
 
 async def setup(bot):
     """discord.py 2.x extension entrypoint for BattleCog"""
