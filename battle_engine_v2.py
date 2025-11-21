@@ -1098,8 +1098,14 @@ class BattleEngine:
         elif effectiveness == 0:
             effectiveness_text = " It doesn't affect the target..."
         
-        # Show who used the move and on whom
-        move_msg = f"{attacker.species_name} used {move_data['name']} on {defender.species_name}!"
+        # Show who used the move and on whom (if single target)
+        target_type = move_data.get('target', 'single')
+        if target_type in ['self', 'entire_field', 'user_field', 'enemy_field', 'all_allies']:
+            # Field effects or self-targeting moves don't need "on [target]"
+            move_msg = f"{attacker.species_name} used {move_data['name']}!"
+        else:
+            # Single target moves show who they targeted
+            move_msg = f"{attacker.species_name} used {move_data['name']} on {defender.species_name}!"
         messages.append(move_msg)
 
         # Show damage as a separate message
