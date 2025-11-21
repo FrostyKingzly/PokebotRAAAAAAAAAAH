@@ -486,6 +486,7 @@ class BattleEngine:
         npc_name: str,
         npc_class: str,
         prize_money: int,
+        battle_format: BattleFormat = BattleFormat.SINGLES,
         is_ranked: bool = False,
         ranked_context: Optional[Dict[str, Any]] = None
     ) -> str:
@@ -496,6 +497,7 @@ class BattleEngine:
             trainer_party=trainer_party,
             opponent_party=npc_party,
             battle_type=BattleType.TRAINER,
+            battle_format=battle_format,
             opponent_name=npc_name,
             trainer_class=npc_class,
             prize_money=prize_money,
