@@ -336,9 +336,6 @@ class BattleCog(commands.Cog):
         # Show all active opponent Pokemon
         for idx, opp_mon in enumerate(opponent_active):
             opp_value = f"HP: {self._hp_bar(opp_mon)} ({max(0, opp_mon.current_hp)}/{opp_mon.max_hp})"
-            foe_item = self._held_item_text(opp_mon)
-            if foe_item:
-                opp_value += f"\n🎁 Item: {foe_item}"
 
             position_label = f" (Slot {idx+1})" if is_doubles else ""
             e.add_field(
@@ -347,12 +344,13 @@ class BattleCog(commands.Cog):
                 inline=is_doubles
             )
 
+        # Add blank separator for doubles to force player Pokemon to new row
+        if is_doubles and len(opponent_active) > 0:
+            e.add_field(name="\u200b", value="\u200b", inline=False)
+
         # Show all active trainer Pokemon
         for idx, trainer_mon in enumerate(trainer_active):
             trainer_value = f"HP: {self._hp_bar(trainer_mon)} ({max(0, trainer_mon.current_hp)}/{trainer_mon.max_hp})"
-            held = self._held_item_text(trainer_mon)
-            if held:
-                trainer_value += f"\n🎁 Item: {held}"
 
             position_label = f" (Slot {idx+1})" if is_doubles else ""
             e.add_field(
@@ -1187,13 +1185,20 @@ class TargetSelectView(discord.ui.View):
                 await interaction.followup.send("Battle not found.", ephemeral=True)
                 return
 
-            # Check if all required actions are registered
-            if len(battle.pending_actions) < len(battle.trainer.get_active_pokemon()) + len(battle.opponent.get_active_pokemon()):
-                await interaction.followup.send(
-                    "Actions submitted! Waiting for opponent...",
-                    ephemeral=True
-                )
-                return
+            # For PvE battles, generate AI actions if opponent is AI
+            if battle.opponent.is_ai:
+                opponent_active = battle.opponent.get_active_pokemon()
+                for pos in range(len(opponent_active)):
+                    ai_action = self.engine.generate_ai_action(self.battle_id, battle.opponent.battler_id, pos)
+                    self.engine.register_action(self.battle_id, battle.opponent.battler_id, ai_action)
+            else:
+                # For PvP battles, check if all required actions are registered
+                if len(battle.pending_actions) < len(battle.trainer.get_active_pokemon()) + len(battle.opponent.get_active_pokemon()):
+                    await interaction.followup.send(
+                        "Actions submitted! Waiting for opponent...",
+                        ephemeral=True
+                    )
+                    return
 
             # Process turn
             cog = interaction.client.get_cog("BattleCog")
