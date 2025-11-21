@@ -306,19 +306,20 @@ class BattleAction:
     """A single action taken by a battler"""
     action_type: str  # 'move', 'switch', 'item', 'flee'
     battler_id: int
-    
+
     # For moves
     move_id: Optional[str] = None
     target_position: Optional[int] = None  # Which opponent slot to target
     mega_evolve: bool = False
-    
+    pokemon_position: int = 0  # Which of the battler's active Pokemon is acting (for doubles)
+
     # For switching
     switch_to_position: Optional[int] = None
-    
+
     # For items
     item_id: Optional[str] = None
     item_target_position: Optional[int] = None  # Which party member gets the item
-    
+
     # Priority for turn order
     priority: int = 0
     speed: int = 0
@@ -606,21 +607,31 @@ class BattleEngine:
             "ready_to_resolve": all_actions_ready
         }
     
-    def generate_ai_action(self, battle_id: str, battler_id: int) -> BattleAction:
+    def generate_ai_action(self, battle_id: str, battler_id: int, pokemon_position: int = 0) -> BattleAction:
         """
-        Generate an AI action for a battler
-        
-        For now: Simple random move selection
-        TODO: Implement smart AI
+        Generate an AI action for a specific Pokemon
+
+        Args:
+            battle_id: The battle ID
+            battler_id: The battler's ID
+            pokemon_position: Which active Pokemon (0 or 1 for doubles)
+
+        Returns:
+            BattleAction for the specified Pokemon
         """
         battle = self.active_battles.get(battle_id)
         if not battle:
             return None
-        
+
         # Find the battler
         battler = battle.trainer if battle.trainer.battler_id == battler_id else battle.opponent
-        active_pokemon = battler.get_active_pokemon()[0]  # Get first active (singles for now)
-        
+        active_pokemon_list = battler.get_active_pokemon()
+
+        if pokemon_position >= len(active_pokemon_list):
+            return None
+
+        active_pokemon = active_pokemon_list[pokemon_position]
+
         # Simple AI: Pick a random move
         usable_moves = [m for m in active_pokemon.moves if m['pp'] > 0]
         if not usable_moves:
@@ -629,16 +640,22 @@ class BattleEngine:
                 action_type='move',
                 battler_id=battler_id,
                 move_id='struggle',
-                target_position=0
+                target_position=0,
+                pokemon_position=pokemon_position
             )
-        
+
         chosen_move = random.choice(usable_moves)
-        
+
+        # Random target selection
+        opponent = battle.opponent if battler_id == battle.trainer.battler_id else battle.trainer
+        target_pos = random.randint(0, len(opponent.get_active_pokemon()) - 1)
+
         return BattleAction(
             action_type='move',
             battler_id=battler_id,
             move_id=chosen_move['move_id'],
-            target_position=0  # Target first opponent
+            target_position=target_pos,
+            pokemon_position=pokemon_position
         )
     
     # ========================
@@ -656,14 +673,22 @@ class BattleEngine:
         if not battle:
             return {"error": "Battle not found"}
         
-        # Generate AI actions if needed
-        if battle.trainer.is_ai and str(battle.trainer.battler_id) not in battle.pending_actions:
-            action = self.generate_ai_action(battle_id, battle.trainer.battler_id)
-            battle.pending_actions[str(battle.trainer.battler_id)] = action
-        
-        if battle.opponent.is_ai and str(battle.opponent.battler_id) not in battle.pending_actions:
-            action = self.generate_ai_action(battle_id, battle.opponent.battler_id)
-            battle.pending_actions[str(battle.opponent.battler_id)] = action
+        # Generate AI actions if needed (one per active Pokemon for doubles)
+        if battle.trainer.is_ai:
+            for pos in range(len(battle.trainer.get_active_pokemon())):
+                action_key = f"{battle.trainer.battler_id}_{pos}"
+                if action_key not in battle.pending_actions:
+                    action = self.generate_ai_action(battle_id, battle.trainer.battler_id, pos)
+                    if action:
+                        battle.pending_actions[action_key] = action
+
+        if battle.opponent.is_ai:
+            for pos in range(len(battle.opponent.get_active_pokemon())):
+                action_key = f"{battle.opponent.battler_id}_{pos}"
+                if action_key not in battle.pending_actions:
+                    action = self.generate_ai_action(battle_id, battle.opponent.battler_id, pos)
+                    if action:
+                        battle.pending_actions[action_key] = action
         
         # Clear turn log
         battle.turn_log = []
