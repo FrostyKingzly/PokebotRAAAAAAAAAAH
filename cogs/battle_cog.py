@@ -1185,14 +1185,9 @@ class TargetSelectView(discord.ui.View):
                 await interaction.followup.send("Battle not found.", ephemeral=True)
                 return
 
-            # For PvE battles, generate AI actions if opponent is AI
-            if battle.opponent.is_ai:
-                opponent_active = battle.opponent.get_active_pokemon()
-                for pos in range(len(opponent_active)):
-                    ai_action = self.engine.generate_ai_action(self.battle_id, battle.opponent.battler_id, pos)
-                    self.engine.register_action(self.battle_id, battle.opponent.battler_id, ai_action)
-            else:
-                # For PvP battles, check if all required actions are registered
+            # For PvP battles, check if all required actions are registered
+            # (AI actions will be generated automatically in process_turn)
+            if not battle.opponent.is_ai:
                 if len(battle.pending_actions) < len(battle.trainer.get_active_pokemon()) + len(battle.opponent.get_active_pokemon()):
                     await interaction.followup.send(
                         "Actions submitted! Waiting for opponent...",

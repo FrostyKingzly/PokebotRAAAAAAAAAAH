@@ -886,7 +886,16 @@ class BattleEngine:
                 move['pp'] = max(0, move['pp'] - 1)
                 break
 
-        messages.append(f"{attacker.species_name} used {move_data['name']}!")
+        # Build list of target names for the move message
+        target_names = [defender.species_name for _, defender in targets]
+        if len(target_names) == 1:
+            target_text = target_names[0]
+        elif len(target_names) == 2:
+            target_text = f"{target_names[0]} and {target_names[1]}"
+        else:
+            target_text = ", ".join(target_names[:-1]) + f", and {target_names[-1]}"
+
+        messages.append(f"{attacker.species_name} used {move_data['name']} on {target_text}!")
 
         # In doubles, spread moves have 0.75x power
         spread_modifier = 0.75 if battle.battle_format == BattleFormat.DOUBLES and len(targets) > 1 else 1.0
@@ -920,16 +929,17 @@ class BattleEngine:
                 defender.current_hp = max(0, defender.current_hp - damage)
 
             # Build damage message
-            damage_text = f"{defender.species_name} took {damage} damage!"
-            if is_crit:
-                damage_text += " Critical hit!"
+            crit_text = " It's a critical hit!" if is_crit else ""
+            effectiveness_text = ""
             if effectiveness > 1:
-                damage_text += " Super effective!"
+                effectiveness_text = " It's super effective!"
             elif effectiveness < 1 and effectiveness > 0:
-                damage_text += " Not very effective..."
+                effectiveness_text = " It's not very effective..."
             elif effectiveness == 0:
-                damage_text = f"It doesn't affect {defender.species_name}..."
+                messages.append(f"It doesn't affect {defender.species_name}...")
+                continue
 
+            damage_text = f"{defender.species_name} took {damage} damage!{crit_text}{effectiveness_text}"
             messages.append(damage_text)
             messages.extend(effect_msgs)
 
@@ -1060,10 +1070,17 @@ class BattleEngine:
         elif effectiveness == 0:
             effectiveness_text = " It doesn't affect the target..."
         
-        move_msg = f"{attacker.species_name} used {move_data['name']}!"
-        if damage > 0:
-            move_msg += f" ({damage} damage){crit_text}{effectiveness_text}"
+        # Show who used the move and on whom
+        move_msg = f"{attacker.species_name} used {move_data['name']} on {defender.species_name}!"
         messages.append(move_msg)
+
+        # Show damage as a separate message
+        if damage > 0:
+            damage_msg = f"{defender.species_name} took {damage} damage!{crit_text}{effectiveness_text}"
+            messages.append(damage_msg)
+        elif effectiveness == 0:
+            messages.append(f"It doesn't affect {defender.species_name}...")
+
         messages.extend(effect_msgs)
 
         if self.held_item_manager:
