@@ -648,9 +648,28 @@ class BattleEngine:
 
         chosen_move = random.choice(usable_moves)
 
-        # Random target selection
-        opponent = battle.opponent if battler_id == battle.trainer.battler_id else battle.trainer
-        target_pos = random.randint(0, len(opponent.get_active_pokemon()) - 1)
+        # Determine target based on move's target type
+        move_data = self.moves_db.get_move(chosen_move['move_id'])
+        target_type = move_data.get('target', 'single') if move_data else 'single'
+
+        # Select target based on move type
+        if target_type in ['ally', 'all_allies']:
+            # Target an ally (other Pokemon on same team)
+            ally_active = battler.get_active_pokemon()
+            if len(ally_active) > 1:
+                # Pick the other Pokemon (not self)
+                other_positions = [i for i in range(len(ally_active)) if i != pokemon_position]
+                target_pos = random.choice(other_positions) if other_positions else pokemon_position
+            else:
+                target_pos = 0  # Only one Pokemon, target self
+        elif target_type in ['self', 'user_field', 'entire_field', 'enemy_field']:
+            # Moves that don't need specific targeting
+            target_pos = 0
+        else:
+            # Target opponent (default for damaging moves)
+            opponent = battle.opponent if battler_id == battle.trainer.battler_id else battle.trainer
+            opponent_active = opponent.get_active_pokemon()
+            target_pos = random.randint(0, len(opponent_active) - 1) if opponent_active else 0
 
         return BattleAction(
             action_type='move',
@@ -858,6 +877,13 @@ class BattleEngine:
             for mon in ally_battler.get_active_pokemon():
                 targets.append((ally_battler, mon))
 
+        elif target_type == 'ally':
+            # Single ally target (for support moves like Helping Hand)
+            target_pos = action.target_position if action.target_position is not None else 0
+            ally_active = ally_battler.get_active_pokemon()
+            if target_pos < len(ally_active):
+                targets.append((ally_battler, ally_active[target_pos]))
+
         elif target_type in ['self', 'user_field']:
             # Target is the attacker itself (handled separately, return empty)
             pass
@@ -965,8 +991,10 @@ class BattleEngine:
             attacker_battler = battle.opponent
             defender_battler = battle.trainer
 
-        # Get attacker Pokemon (the one using the move) - default to first position
-        attacker = attacker_battler.get_active_pokemon()[0]
+        # Get attacker Pokemon (the one using the move) - use pokemon_position from action
+        active_pokemon_list = attacker_battler.get_active_pokemon()
+        pokemon_pos = action.pokemon_position if action.pokemon_position < len(active_pokemon_list) else 0
+        attacker = active_pokemon_list[pokemon_pos]
 
         # For singles or simple case, get single defender
         defender = defender_battler.get_active_pokemon()[action.target_position or 0]
