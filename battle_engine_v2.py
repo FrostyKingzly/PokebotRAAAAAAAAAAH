@@ -556,7 +556,7 @@ class BattleEngine:
             return {"error": "Battle not found"}
         
         # NEW CODE: Check if forced switch is required
-        if battle.phase == 'FORCED_SWITCH':
+        if battle.phase in ['FORCED_SWITCH', 'VOLT_SWITCH']:
             if battle.forced_switch_battler_id == battler_id:
                 if action.action_type != 'switch':
                     return {"error": "You must switch to another Pokémon!"}
@@ -677,7 +677,7 @@ class BattleEngine:
 
             # If a forced switch is pending for this battler, ignore non-switch actions
             if (
-                battle.phase == 'FORCED_SWITCH'
+                battle.phase in ['FORCED_SWITCH', 'VOLT_SWITCH']
                 and battle.forced_switch_battler_id == battler.battler_id
                 and action.action_type != 'switch'
             ):
@@ -783,20 +783,36 @@ class BattleEngine:
         else:
             attacker_battler = battle.opponent
             defender_battler = battle.trainer
-        
+
         attacker = attacker_battler.get_active_pokemon()[0]
         defender = defender_battler.get_active_pokemon()[action.target_position or 0]
-        
+
         # Check if attacker can move (status conditions, flinch, etc.)
         if ENHANCED_SYSTEMS_AVAILABLE and hasattr(attacker, 'status_manager'):
             can_move, prevention_msg = attacker.status_manager.can_move(attacker)
             if not can_move:
                 return {"messages": [prevention_msg]}
-        
+
         # Get move data
         move_data = self.moves_db.get_move(action.move_id)
         if not move_data:
             return {"messages": [f"{attacker.species_name} tried to use an unknown move!"]}
+
+        # Handle Protect/Detect successive use failure
+        if action.move_id in ['protect', 'detect']:
+            protect_count = getattr(attacker, '_protect_count', 0)
+            if protect_count > 0:
+                # Calculate success rate: (1/3)^protect_count
+                success_rate = (1.0 / 3.0) ** protect_count
+                if random.random() > success_rate:
+                    # Protect failed
+                    attacker._protect_count = 0  # Reset on failure
+                    return {"messages": [f"{attacker.species_name} used {move_data['name']}, but it failed!"]}
+            # Increment protect count on successful use
+            attacker._protect_count = protect_count + 1
+        else:
+            # Reset protect count when using any other move
+            attacker._protect_count = 0
 
         if self.held_item_manager:
             restriction = self.held_item_manager.check_move_restrictions(attacker, move_data)
@@ -814,7 +830,15 @@ class BattleEngine:
             if move['move_id'] == action.move_id:
                 move['pp'] = max(0, move['pp'] - 1)
                 break
-        
+
+        # Check if defender is protected (Protect/Detect blocks damaging moves)
+        if ENHANCED_SYSTEMS_AVAILABLE and hasattr(defender, 'status_manager'):
+            if 'protect' in getattr(defender.status_manager, 'volatile_statuses', {}):
+                # Protect blocks all damaging moves and most status moves
+                if move_data.get('category') in ['physical', 'special']:
+                    move_msg = f"{attacker.species_name} used {move_data['name']}, but {defender.species_name} protected itself!"
+                    return {"messages": [move_msg]}
+
         # Calculate damage and apply effects
         if ENHANCED_SYSTEMS_AVAILABLE:
             damage, is_crit, effectiveness, effect_msgs = self.calculator.calculate_damage_with_effects(
@@ -909,13 +933,45 @@ class BattleEngine:
                     else:
                         self._check_battle_end(battle)
 
+        # Handle self-switch moves (Volt Switch, U-turn, etc.)
+        if getattr(attacker, '_should_switch', False) and attacker.current_hp > 0:
+            attacker._should_switch = False  # Clear the flag
+
+            # Check if the attacker's battler can switch and has other Pokemon
+            if attacker_battler.can_switch and attacker_battler.has_usable_pokemon():
+                usable_count = sum(1 for p in attacker_battler.party if p.current_hp > 0 and p != attacker)
+                if usable_count > 0:
+                    if attacker_battler.is_ai:
+                        # AI auto-switches to first available Pokemon
+                        replacement_index = None
+                        for idx, p in enumerate(attacker_battler.party):
+                            if p is attacker:
+                                continue
+                            if getattr(p, 'current_hp', 0) > 0:
+                                replacement_index = idx
+                                break
+                        if replacement_index is not None:
+                            switch_action = BattleAction(
+                                action_type='switch',
+                                battler_id=attacker_battler.battler_id,
+                                switch_to_position=replacement_index
+                            )
+                            switch_result = self._execute_switch(battle, switch_action)
+                            messages.extend(switch_result.get('messages', []))
+                    else:
+                        # Player needs to choose which Pokemon to switch to
+                        # Set a flag that will be checked by the UI
+                        battle.phase = 'VOLT_SWITCH'
+                        battle.forced_switch_battler_id = attacker_battler.battler_id
+                        messages.append(f"Choose a Pokémon to switch in!")
+
         return {"messages": messages}
 
     
     
     def auto_switch_if_forced_ai(self, battle: BattleState) -> List[str]:
         """Perform queued AI forced switch AFTER end-of-turn and return narration."""
-        if battle.phase != 'FORCED_SWITCH' or battle.forced_switch_battler_id is None:
+        if battle.phase not in ['FORCED_SWITCH', 'VOLT_SWITCH'] or battle.forced_switch_battler_id is None:
             return []
         # Identify battler
         battler = battle.trainer if battle.trainer.battler_id == battle.forced_switch_battler_id else battle.opponent
@@ -1077,7 +1133,7 @@ class BattleEngine:
         if not battle:
             return {"error": "Battle not found"}
 
-        if battle.phase != 'FORCED_SWITCH' or battle.forced_switch_battler_id != battler_id:
+        if battle.phase not in ['FORCED_SWITCH', 'VOLT_SWITCH'] or battle.forced_switch_battler_id != battler_id:
             return {"error": "No forced switch is pending"}
 
         battler = battle.trainer if battler_id == battle.trainer.battler_id else battle.opponent

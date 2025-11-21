@@ -106,6 +106,15 @@ class EffectHandler:
             ))
         
 
+        # Protect-like moves (block attacks this turn)
+        if move_id in ['protect', 'detect']:
+            effects.append(MoveEffect(
+                effect_type='volatile',
+                chance=100,
+                target='self',
+                params={'status': 'protect'}
+            ))
+
         # Endure (survive this turn at 1 HP)
         if move_id == 'endure':
             effects.append(MoveEffect(
@@ -251,9 +260,11 @@ class EffectHandler:
                 chance=100,
                 target='normal'
             ))
-        
+
         # Moves that make user switch (U-turn, Volt Switch, etc.)
-        if move_data.get('selfSwitch'):
+        # These moves are detected by their move_id since the JSON doesn't have selfSwitch field
+        switch_moves = ['volt_switch', 'u_turn', 'flip_turn', 'baton_pass', 'parting_shot', 'teleport']
+        if move_data.get('selfSwitch') or move_id in switch_moves:
             effects.append(MoveEffect(
                 effect_type='self_switch',
                 chance=100,
@@ -331,7 +342,23 @@ class EffectHandler:
             elif effect.effect_type == 'selfdestruct':
                 attacker.current_hp = 0
                 messages.append(f"{attacker.species_name} fainted from the blast!")
-        
+
+            elif effect.effect_type == 'self_switch':
+                # Mark that the attacker should switch after this move
+                # The battle engine will handle the actual switching
+                attacker._should_switch = True
+                messages.append(f"{attacker.species_name} will switch out!")
+
+            elif effect.effect_type == 'weather':
+                result = self._apply_weather(effect, battle_state)
+                if result:
+                    messages.append(result)
+
+            elif effect.effect_type == 'terrain':
+                result = self._apply_terrain(effect, battle_state)
+                if result:
+                    messages.append(result)
+
         return messages
     
     def _apply_hazard(self, effect: MoveEffect, battle_state: Any) -> Optional[str]:
@@ -469,22 +496,61 @@ class EffectHandler:
     def _apply_volatile(self, effect: MoveEffect, target: Any) -> Optional[str]:
         """Apply volatile status condition"""
         status = effect.params.get('status')
-        
+
         if not hasattr(target, 'status_manager'):
             target.status_manager = StatusConditionManager()
-        
+
         # Set duration for certain volatile statuses
         duration = None
         if status in ['confusion']:
             duration = random.randint(1, 4)  # 1-4 turns
         elif status in ['bind', 'wrap', 'firespin', 'whirlpool', 'sandtomb', 'clamp', 'infestation']:
             duration = random.randint(4, 5)  # 4-5 turns
-        
+        elif status in ['flinch', 'protect', 'detect', 'endure']:
+            duration = 1  # These only last until end of turn
+
         success, message = target.status_manager.apply_status(status, duration=duration)
         if success:
             return f"{target.species_name} {message}"
-        
+
         return None
+
+    def _apply_weather(self, effect: MoveEffect, battle_state: Any) -> Optional[str]:
+        """Apply weather to the field"""
+        weather = effect.params.get('weather')
+
+        if not battle_state:
+            return None
+
+        weather_messages = {
+            'sun': "The sunlight turned harsh!",
+            'rain': "It started to rain!",
+            'sandstorm': "A sandstorm kicked up!",
+            'hail': "It started to hail!",
+            'snow': "It started to snow!"
+        }
+
+        battle_state.weather = weather
+        battle_state.weather_turns = 5  # Default 5 turns
+        return weather_messages.get(weather, f"The weather changed to {weather}!")
+
+    def _apply_terrain(self, effect: MoveEffect, battle_state: Any) -> Optional[str]:
+        """Apply terrain to the field"""
+        terrain = effect.params.get('terrain')
+
+        if not battle_state:
+            return None
+
+        terrain_messages = {
+            'electricterrain': "An electric current ran across the battlefield!",
+            'grassyterrain': "Grass grew to cover the battlefield!",
+            'mistyterrain': "Mist swirled around the battlefield!",
+            'psychicterrain': "The battlefield got weird!"
+        }
+
+        battle_state.terrain = terrain
+        battle_state.terrain_turns = 5  # Default 5 turns
+        return terrain_messages.get(terrain, f"The terrain changed to {terrain}!")
     
     def get_stat_multiplier(self, stage: int) -> float:
         """Get the stat multiplier for a given stage (-6 to +6)"""

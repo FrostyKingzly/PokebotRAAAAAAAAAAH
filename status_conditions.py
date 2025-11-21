@@ -262,32 +262,36 @@ class StatusConditionManager:
         Check if Pokemon can move this turn
         Returns (can_move, reason_if_cant)
         """
+        # Check flinch first (flinch prevents moving this turn)
+        if VolatileStatus.FLINCH.value in self.volatile_statuses:
+            return False, f"{pokemon.species_name} flinched!"
+
         # Check major status
         if self.major_status:
             status = self.major_status.status_type
-            
+
             if status == StatusType.FREEZE.value:
                 # 20% chance to thaw
                 if random.random() < 0.2:
                     self.major_status = None
                     return True, f"{pokemon.species_name} thawed out!"
                 return False, f"{pokemon.species_name} is frozen solid!"
-            
+
             elif status == StatusType.SLEEP.value:
                 return False, f"{pokemon.species_name} is fast asleep!"
-            
+
             elif status == StatusType.PARALYSIS.value:
                 # 25% chance to be fully paralyzed
                 if random.random() < 0.25:
                     return False, f"{pokemon.species_name} is paralyzed and can't move!"
-        
+
         # Check confusion
         if VolatileStatus.CONFUSION.value in self.volatile_statuses:
             if random.random() < 0.33:  # 1/3 chance to hurt self
                 damage = max(1, pokemon.attack * 40 // pokemon.defense // 50 + 2)
                 pokemon.current_hp = max(0, pokemon.current_hp - damage)
                 return False, f"{pokemon.species_name} hurt itself in confusion! (-{damage} HP)"
-        
+
         return True, None
     
     def modify_speed(self, speed: int) -> int:
