@@ -591,8 +591,12 @@ class BattleEngine:
         if battler_id not in [battle.trainer.battler_id, battle.opponent.battler_id]:
             return {"error": "Invalid battler ID"}
         
-        # Store action
-        battle.pending_actions[str(battler_id)] = action
+        # Store action with composite key for doubles (battler_id_position)
+        if battle.battle_format == BattleFormat.DOUBLES:
+            action_key = f"{battler_id}_{action.pokemon_position}"
+        else:
+            action_key = str(battler_id)
+        battle.pending_actions[action_key] = action
         
         # Check if we have all actions needed
         required_actions = []
@@ -634,7 +638,7 @@ class BattleEngine:
 
         active_pokemon = active_pokemon_list[pokemon_position]
 
-        # Simple AI: Pick a random move
+        # Smarter AI: Categorize moves and choose strategically
         usable_moves = [m for m in active_pokemon.moves if m['pp'] > 0]
         if not usable_moves:
             # Struggle
@@ -646,7 +650,47 @@ class BattleEngine:
                 pokemon_position=pokemon_position
             )
 
-        chosen_move = random.choice(usable_moves)
+        # Categorize moves
+        offensive_moves = []
+        support_moves = []
+        setup_moves = []
+
+        for move in usable_moves:
+            move_data = self.moves_db.get_move(move['move_id'])
+            if not move_data:
+                continue
+
+            category = move_data.get('category', 'status')
+            target_type = move_data.get('target', 'single')
+
+            if category in ['physical', 'special']:
+                offensive_moves.append(move)
+            elif target_type in ['ally', 'all_allies'] or move['move_id'] in ['helping_hand', 'protect', 'detect']:
+                support_moves.append(move)
+            elif target_type in ['self', 'user_field']:
+                setup_moves.append(move)
+            else:
+                # Other status moves (e.g., field effects)
+                setup_moves.append(move)
+
+        # Decision logic: 75% prefer offense, 20% support, 5% setup
+        # But only if there are allies for support moves
+        ally_active = battler.get_active_pokemon()
+        has_allies = len(ally_active) > 1
+
+        choice_pool = []
+        if offensive_moves:
+            choice_pool.extend(offensive_moves * 3)  # 75% weight
+        if support_moves and has_allies and battle.turn_number <= 3:  # Use support early and only with allies
+            choice_pool.extend(support_moves)  # 25% weight
+        if setup_moves and battle.turn_number == 1:  # Setup on turn 1
+            choice_pool.extend(setup_moves)
+
+        # Fallback to any usable move
+        if not choice_pool:
+            choice_pool = usable_moves
+
+        chosen_move = random.choice(choice_pool)
 
         # Determine target based on move's target type
         move_data = self.moves_db.get_move(chosen_move['move_id'])
@@ -996,9 +1040,6 @@ class BattleEngine:
         pokemon_pos = action.pokemon_position if action.pokemon_position < len(active_pokemon_list) else 0
         attacker = active_pokemon_list[pokemon_pos]
 
-        # For singles or simple case, get single defender
-        defender = defender_battler.get_active_pokemon()[action.target_position or 0]
-
         # Check if attacker can move (status conditions, flinch, etc.)
         if ENHANCED_SYSTEMS_AVAILABLE and hasattr(attacker, 'status_manager'):
             can_move, prevention_msg = attacker.status_manager.can_move(attacker)
@@ -1013,6 +1054,14 @@ class BattleEngine:
         # Determine all targets based on move target type
         target_type = move_data.get('target', 'single')
         targets = self._determine_move_targets(battle, action, move_data)
+
+        # Get the actual defender from targets (handles ally-targeting moves correctly)
+        if targets:
+            defender_battler_actual, defender = targets[0]
+        else:
+            # Fallback for self-targeting or field moves
+            defender = attacker
+            defender_battler_actual = attacker_battler
 
         # If move hits multiple targets (spread move), handle differently
         if len(targets) > 1:
