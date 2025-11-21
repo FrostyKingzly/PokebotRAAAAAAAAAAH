@@ -9,9 +9,10 @@ from capture import simulate_throw, guaranteed_capture
 from learnset_database import LearnsetDatabase
 # Emoji placeholders (fallbacks if ui.emoji is missing)
 try:
-    from ui.emoji import SWORD, FIELD, EVENTS, YOU, FOE
+    from ui.emoji import SWORD, FIELD, EVENTS, YOU, FOE, TYPE_EMOJIS
 except Exception:
     SWORD = "⚔️"; FIELD = "🌦️"; EVENTS = "📋"; YOU = "👉"; FOE = "🎯"
+    TYPE_EMOJIS = {}
 
 try:
     from version import BUILD_TAG
@@ -726,9 +727,15 @@ class MoveSelectView(discord.ui.View):
 
             move_info = engine.moves_db.get_move(move_id) if hasattr(engine, "moves_db") else None
             move_name = (move_info.get("name") if move_info else None) or mv.get("name") or move_id
+
+            # Add type emoji before move name
+            move_type = (move_info.get("type") or "").lower() if move_info else None
+            type_emoji = TYPE_EMOJIS.get(move_type, "") if move_type else ""
+            type_prefix = f"{type_emoji} " if type_emoji else ""
+
             cur_pp = mv.get("pp")
             max_pp = mv.get("max_pp")
-            label = f"{move_name} ({cur_pp}/{max_pp})" if (cur_pp is not None and max_pp is not None) else move_name
+            label = f"{type_prefix}{move_name} ({cur_pp}/{max_pp})" if (cur_pp is not None and max_pp is not None) else f"{type_prefix}{move_name}"
 
             self.add_item(
                 MoveButton(
@@ -867,8 +874,10 @@ class PartySelect(discord.ui.Select):
         active_index = battler.active_positions[0]  # Get actual active position
         for idx, mon in enumerate(party):
             name = getattr(mon, "species_name", f"Slot {idx+1}")
-            hp = f"{getattr(mon, 'current_hp', 0)}/{getattr(mon, 'max_hp', 1)}"
-            disabled = (idx == active_index) or getattr(mon, "current_hp", 0) <= 0
+            current_hp = getattr(mon, 'current_hp', 0)
+            max_hp = getattr(mon, 'max_hp', 1)
+            hp = "(Fainted)" if current_hp <= 0 else f"{current_hp}/{max_hp}"
+            disabled = (idx == active_index) or current_hp <= 0
             options.append(discord.SelectOption(label=name, description=f"HP {hp}", value=str(idx), default=False))
         placeholder = "Choose a Pokémon to send out" if forced else "Choose a Pokémon to switch in"
         super().__init__(placeholder=placeholder, min_values=1, max_values=1, options=options)
