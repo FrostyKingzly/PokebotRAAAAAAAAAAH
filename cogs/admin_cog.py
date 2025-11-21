@@ -1367,52 +1367,6 @@ class ChannelLocationSelectView(discord.ui.View):
         self.stop()
 
 
-    @app_commands.command(name="test_doubles", description="[Admin] Start a test doubles battle")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def test_doubles(self, interaction: discord.Interaction):
-        """Start a test doubles battle against an NPC with a doubles team"""
-        try:
-            from test_npc_trainers import get_test_doubles_trainer
-            from battle_engine_v2 import BattleFormat
-
-            # Get player's party
-            party = self.bot.player_manager.get_party(interaction.user.id)
-            if not party or len(party) < 2:
-                await interaction.response.send_message(
-                    "❌ You need at least 2 Pokemon in your party for doubles battles!",
-                    ephemeral=True
-                )
-                return
-
-            # Get test NPC trainer
-            npc_data = get_test_doubles_trainer(self.bot.species_db, self.bot.moves_db)
-
-            # Start doubles battle
-            battle_id = self.bot.battle_engine.start_trainer_battle(
-                trainer_id=interaction.user.id,
-                trainer_name=interaction.user.display_name,
-                trainer_party=party,
-                npc_party=npc_data['party'],
-                npc_name=npc_data['trainer_name'],
-                npc_class=npc_data['trainer_class'],
-                prize_money=npc_data['prize_money'],
-                battle_format=BattleFormat.DOUBLES
-            )
-
-            # Get battle cog and start UI
-            battle_cog = self.bot.get_cog("BattleCog")
-            if battle_cog:
-                battle = self.bot.battle_engine.get_battle(battle_id)
-                await battle_cog.start_battle_ui(interaction, battle_id, battle.battle_type)
-            else:
-                await interaction.response.send_message("❌ Battle system not available.", ephemeral=True)
-
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Error starting doubles battle: {e}", ephemeral=True)
-            import traceback
-            traceback.print_exc()
-
-
 async def setup(bot):
     """Setup function for loading the cog"""
     await bot.add_cog(AdminCog(bot))
