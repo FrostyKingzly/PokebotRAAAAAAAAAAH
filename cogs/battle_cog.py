@@ -727,15 +727,9 @@ class MoveSelectView(discord.ui.View):
 
             move_info = engine.moves_db.get_move(move_id) if hasattr(engine, "moves_db") else None
             move_name = (move_info.get("name") if move_info else None) or mv.get("name") or move_id
-
-            # Add type emoji before move name
-            move_type = (move_info.get("type") or "").lower() if move_info else None
-            type_emoji = TYPE_EMOJIS.get(move_type, "") if move_type else ""
-            type_prefix = f"{type_emoji} " if type_emoji else ""
-
             cur_pp = mv.get("pp")
             max_pp = mv.get("max_pp")
-            label = f"{type_prefix}{move_name} ({cur_pp}/{max_pp})" if (cur_pp is not None and max_pp is not None) else f"{type_prefix}{move_name}"
+            label = f"{move_name} ({cur_pp}/{max_pp})" if (cur_pp is not None and max_pp is not None) else move_name
 
             self.add_item(
                 MoveButton(
