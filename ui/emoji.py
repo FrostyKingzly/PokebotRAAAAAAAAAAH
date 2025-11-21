@@ -14,8 +14,30 @@ CROSS = "❌"
 BALL = "🔴"
 ARROW = "➡️"
 
-# Type emojis
+# Type emojis (Unicode emojis for button labels)
 TYPE_EMOJIS = {
+    "water": "💧",
+    "steel": "⚙️",
+    "rock": "🪨",
+    "psychic": "🔮",
+    "poison": "☠️",
+    "normal": "⭐",
+    "ice": "❄️",
+    "ground": "🌍",
+    "grass": "🌿",
+    "ghost": "👻",
+    "flying": "🕊️",
+    "fire": "🔥",
+    "fighting": "👊",
+    "fairy": "🧚",
+    "electric": "⚡",
+    "dragon": "🐉",
+    "dark": "🌙",
+    "bug": "🐛",
+}
+
+# Custom Discord type emojis (for use in embeds/messages, not buttons)
+TYPE_EMOJIS_CUSTOM = {
     "water": "<:water:1439925544316833842>",
     "steel": "<:steel:1439925520044130415>",
     "rock": "<:rock:1439925494911995998>",
