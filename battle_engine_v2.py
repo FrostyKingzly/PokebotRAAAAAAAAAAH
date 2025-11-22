@@ -772,13 +772,26 @@ class BattleEngine:
             if battle.is_over or getattr(battle, "wild_dazed", False):
                 break
 
-            # Skip actions for battlers whose active Pokémon have fainted
+            # Skip actions for fainted Pokemon
             battler = battle.trainer if action.battler_id == battle.trainer.battler_id else battle.opponent
             active_pokemon = battler.get_active_pokemon()
-            if not active_pokemon or all(p.current_hp <= 0 for p in active_pokemon):
-                # This side has no conscious active Pokémon right now (usually due to fainting earlier this turn)
-                # They will either be forced to switch or the battle will end, so their queued action is ignored.
-                continue
+
+            # In doubles, check the specific Pokemon's HP
+            if battle.battle_format == BattleFormat.DOUBLES and hasattr(action, 'pokemon_position'):
+                pokemon_pos = action.pokemon_position
+                if pokemon_pos < len(active_pokemon):
+                    acting_pokemon = active_pokemon[pokemon_pos]
+                    if acting_pokemon.current_hp <= 0:
+                        # This specific Pokemon has fainted, skip its action
+                        continue
+                else:
+                    # Invalid position, skip
+                    continue
+            else:
+                # Singles: check if any Pokemon are conscious
+                if not active_pokemon or all(p.current_hp <= 0 for p in active_pokemon):
+                    # This side has no conscious active Pokémon right now
+                    continue
 
             # If a forced switch is pending for this battler, ignore non-switch actions
             if (
