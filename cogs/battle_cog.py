@@ -240,15 +240,15 @@ class BattleCog(commands.Cog):
         except Exception:
             pass
 
-        trainer_mon = battle.trainer.get_active_pokemon()[0]
-        opponent_mon = battle.opponent.get_active_pokemon()[0]
+        trainer_active = battle.trainer.get_active_pokemon()
+        opponent_active = battle.opponent.get_active_pokemon()
 
         battle_mode = battle_type or battle.battle_type
 
         # 1) Opening embed: differentiate wild encounters vs trainer battles
         if battle_mode == BattleType.WILD:
             enc_title = f"{SWORD} Encounter!"
-            enc_description = f"You encountered a wild **{opponent_mon.species_name}**!"
+            enc_description = f"You encountered a wild **{opponent_active[0].species_name}**!"
         else:
             enc_title = f"{SWORD} Battle Start!"
             enc_description = (
@@ -268,16 +268,40 @@ class BattleCog(commands.Cog):
         sendout_lines = []
 
         if battle_mode == BattleType.WILD:
-            sendout_lines.append(
-                f"**{battle.trainer.battler_name}** sent out **{trainer_mon.species_name}**!"
-            )
+            # Wild battles - only show player's Pokemon
+            if len(trainer_active) == 1:
+                sendout_lines.append(
+                    f"**{battle.trainer.battler_name}** sent out **{trainer_active[0].species_name}**!"
+                )
+            else:
+                # Doubles wild battle (rare but possible)
+                pokemon_names = " and ".join([f"**{mon.species_name}**" for mon in trainer_active])
+                sendout_lines.append(
+                    f"**{battle.trainer.battler_name}** sent out {pokemon_names}!"
+                )
         else:
-            sendout_lines.append(
-                f"**{battle.trainer.battler_name}** sent out **{trainer_mon.species_name}**!"
-            )
-            sendout_lines.append(
-                f"**{battle.opponent.battler_name}** sent out **{opponent_mon.species_name}**!"
-            )
+            # Trainer battles - show both sides
+            if len(trainer_active) == 1:
+                sendout_lines.append(
+                    f"**{battle.trainer.battler_name}** sent out **{trainer_active[0].species_name}**!"
+                )
+            else:
+                # Doubles - show all Pokemon
+                pokemon_names = " and ".join([f"**{mon.species_name}**" for mon in trainer_active])
+                sendout_lines.append(
+                    f"**{battle.trainer.battler_name}** sent out {pokemon_names}!"
+                )
+
+            if len(opponent_active) == 1:
+                sendout_lines.append(
+                    f"**{battle.opponent.battler_name}** sent out **{opponent_active[0].species_name}**!"
+                )
+            else:
+                # Doubles - show all Pokemon
+                pokemon_names = " and ".join([f"**{mon.species_name}**" for mon in opponent_active])
+                sendout_lines.append(
+                    f"**{battle.opponent.battler_name}** sent out {pokemon_names}!"
+                )
 
         for msg in (getattr(battle, "entry_messages", []) or []):
             sendout_lines.append(f"• {msg}")
