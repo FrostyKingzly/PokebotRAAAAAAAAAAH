@@ -794,12 +794,21 @@ class BattleEngine:
                     continue
 
             # If a forced switch is pending for this battler, ignore non-switch actions
+            # In doubles, only skip actions from the specific position that needs to switch
             if (
                 battle.phase in ['FORCED_SWITCH', 'VOLT_SWITCH']
                 and battle.forced_switch_battler_id == battler.battler_id
                 and action.action_type != 'switch'
             ):
-                continue
+                # In doubles, check if this specific Pokemon needs to switch
+                if battle.battle_format == BattleFormat.DOUBLES and battle.forced_switch_position is not None:
+                    if hasattr(action, 'pokemon_position') and action.pokemon_position == battle.forced_switch_position:
+                        # This Pokemon needs to switch, skip its action
+                        continue
+                    # else: This is the other Pokemon on the team, let it act
+                else:
+                    # Singles: skip all non-switch actions when forced switch is pending
+                    continue
 
             result = await self._execute_action(battle, action)
             if action.action_type == 'switch':
