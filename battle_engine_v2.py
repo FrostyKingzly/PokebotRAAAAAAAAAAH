@@ -81,6 +81,7 @@ class BattleState:
     turn_number: int = 1
     phase: str = 'START'  # START, WAITING_ACTIONS, RESOLVING, FORCED_SWITCH, END
     forced_switch_battler_id: Optional[int] = None  # Which battler must switch
+    forced_switch_position: Optional[int] = None  # Which position (0 or 1 for doubles) to replace
     is_over: bool = False
     winner: Optional[str] = None  # 'trainer', 'opponent', 'draw'
     fled: bool = False
@@ -1185,6 +1186,13 @@ class BattleEngine:
             else:
                 messages.append(f"{defender.species_name} fainted!")
 
+                # Determine which position the fainted Pokemon was in
+                fainted_position = None
+                for pos_idx, party_idx in enumerate(defender_battler.active_positions):
+                    if defender_battler.party[party_idx] == defender:
+                        fainted_position = pos_idx
+                        break
+
                 # For player's Pokemon fainting (non‑AI), they need to switch (if they have Pokemon left)
                 if defender_battler == battle.trainer and not defender_battler.is_ai:
                     if defender_battler.has_usable_pokemon():
@@ -1194,6 +1202,7 @@ class BattleEngine:
                             messages.append("You must send out another Pokémon!")
                             battle.phase = 'FORCED_SWITCH'
                             battle.forced_switch_battler_id = defender_battler.battler_id
+                            battle.forced_switch_position = fainted_position
                         else:
                             self._check_battle_end(battle)
 
@@ -1205,12 +1214,16 @@ class BattleEngine:
                         for idx, p in enumerate(defender_battler.party):
                             if p is defender:
                                 continue
+                            # Don't pick a Pokemon already on the field
+                            if idx in defender_battler.active_positions:
+                                continue
                             if getattr(p, 'current_hp', 0) > 0:
                                 replacement_index = idx
                                 break
                         if replacement_index is not None:
                             battle.phase = 'FORCED_SWITCH'
                             battle.forced_switch_battler_id = defender_battler.battler_id
+                            battle.forced_switch_position = fainted_position
                             battle.pending_ai_switch_index = replacement_index
                     else:
                         self._check_battle_end(battle)
@@ -1261,10 +1274,10 @@ class BattleEngine:
             return []
         idx = battle.pending_ai_switch_index
         if idx is None:
-            # Fallback: first healthy other than current
-            current_idx = battler.active_positions[0] if battler.active_positions else None
+            # Fallback: first healthy Pokemon not currently active
             for i, p in enumerate(battler.party):
-                if i == current_idx: 
+                # Skip Pokemon that are already on the field
+                if i in battler.active_positions:
                     continue
                 if getattr(p, 'current_hp', 0) > 0:
                     idx = i
@@ -1379,12 +1392,19 @@ class BattleEngine:
         """Execute a Pokemon switch"""
         battler = battle.trainer if action.battler_id == battle.trainer.battler_id else battle.opponent
 
+        # Determine which position to switch (for forced switches from fainting in doubles)
+        switch_position = 0  # Default for singles
+        if forced and battle.forced_switch_position is not None:
+            switch_position = battle.forced_switch_position
+        elif hasattr(action, 'pokemon_position') and action.pokemon_position is not None:
+            switch_position = action.pokemon_position
+
         # Get old and new Pokemon
-        old_pokemon = battler.get_active_pokemon()[0]
+        old_pokemon = battler.get_active_pokemon()[switch_position] if switch_position < len(battler.get_active_pokemon()) else battler.get_active_pokemon()[0]
         new_pokemon = battler.party[action.switch_to_position]
 
         # Switch
-        battler.active_positions[0] = action.switch_to_position
+        battler.active_positions[switch_position] = action.switch_to_position
 
         if self.held_item_manager:
             self.held_item_manager.clear_choice_lock(old_pokemon)
@@ -1430,6 +1450,7 @@ class BattleEngine:
 
         battle.phase = 'WAITING_ACTIONS'
         battle.forced_switch_battler_id = None
+        battle.forced_switch_position = None
         battle.pending_ai_switch_index = None
         battle.pending_actions.pop(str(battler_id), None)
 
