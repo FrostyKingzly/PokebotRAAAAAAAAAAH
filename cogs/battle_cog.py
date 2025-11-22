@@ -611,7 +611,7 @@ class BattleCog(commands.Cog):
 
 class ForfeitConfirmView(discord.ui.View):
     def __init__(self, action_view: 'BattleActionView'):
-        super().__init__(timeout=30)
+        super().__init__(timeout=None)
         self.action_view = action_view
 
     @discord.ui.button(label="Yes, forfeit", style=discord.ButtonStyle.danger)
@@ -638,7 +638,7 @@ class ForfeitConfirmView(discord.ui.View):
 
 class BattleActionView(discord.ui.View):
     def __init__(self, battle_id: str, battler_id: int, engine: BattleEngine, battle, battle_cog: 'BattleCog'):
-        super().__init__(timeout=300)
+        super().__init__(timeout=None)
         self.battle_id = battle_id
         self.battler_id = battler_id
         self.engine = engine
@@ -751,7 +751,7 @@ class BattleActionView(discord.ui.View):
 
 class MoveSelectView(discord.ui.View):
     def __init__(self, battle, battler_id: int, engine: BattleEngine):
-        super().__init__(timeout=60)
+        super().__init__(timeout=None)
         self.battle = battle
         self.battle_id = battle.battle_id
         self.battler_id = battler_id
@@ -960,7 +960,7 @@ class PartySelect(discord.ui.Select):
             await cog._handle_post_turn(interaction, parent_view.battle_id)
 class PartySelectView(discord.ui.View):
     def __init__(self, battle, battler_id: int, engine: BattleEngine, forced: bool = False):
-        super().__init__(timeout=none)
+        super().__init__(timeout=None)
         self.battle_id = battle.battle_id
         self.engine = engine
         self.forced = forced
@@ -968,7 +968,7 @@ class PartySelectView(discord.ui.View):
 class BagView(discord.ui.View):
     """In-battle bag view focusing on Pokeballs so you can attempt captures at any time."""
     def __init__(self, battle_cog: BattleCog, battle, discord_user_id: int):
-        super().__init__(timeout=120)
+        super().__init__(timeout=None)
         self.battle_cog = battle_cog
         self.battle_id = battle.battle_id
         self.engine = battle_cog.battle_engine
@@ -993,7 +993,7 @@ class DazedCatchView(discord.ui.View):
     """Prompt that lets trainers confirm whether they will catch a dazed wild Pokemon."""
 
     def __init__(self, battle_cog: BattleCog, battle_id: str):
-        super().__init__(timeout=120)
+        super().__init__(timeout=None)
         self.battle_cog = battle_cog
         self.battle_id = battle_id
 
@@ -1039,7 +1039,7 @@ class DazedCatchView(discord.ui.View):
                 pass
 
         select.callback = select_callback
-        new_view = discord.ui.View(timeout=120)
+        new_view = discord.ui.View(timeout=None)
         new_view.add_item(select)
 
         await interaction.response.edit_message(
@@ -1105,7 +1105,7 @@ class TargetSelectView(discord.ui.View):
     """View for selecting which target to attack in doubles battles."""
     def __init__(self, battle, battler_id: int, move_id: str, pokemon_position: int,
                  engine: BattleEngine, collector: DoublesActionCollector | None = None):
-        super().__init__(timeout=60)
+        super().__init__(timeout=None)
         self.battle = battle
         self.battle_id = battle.battle_id
         self.battler_id = battler_id
@@ -1252,7 +1252,7 @@ class DoublesMoveSelectView(discord.ui.View):
     """Move selection view for one Pokemon in a doubles battle."""
     def __init__(self, battle, battler_id: int, engine: BattleEngine,
                  pokemon_position: int, collector: DoublesActionCollector):
-        super().__init__(timeout=60)
+        super().__init__(timeout=None)
         self.battle = battle
         self.battle_id = battle.battle_id
         self.battler_id = battler_id
