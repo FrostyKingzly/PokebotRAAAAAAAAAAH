@@ -404,7 +404,7 @@ class BattleCog(commands.Cog):
     def _build_turn_embed(self, messages: list[str]) -> discord.Embed:
         if messages:
             spaced = []
-            for msg in messages[-6:]:
+            for msg in messages:
                 spaced.append(msg)
                 spaced.append("")
             if spaced and spaced[-1] == "":
